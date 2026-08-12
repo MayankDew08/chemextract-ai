@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Recipe Detail{% endblock %}
+{% block content %}
+<section class="page-header">
+  <h1 id="recipe-title">Recipe</h1>
+  <p id="recipe-subtitle"></p>
+</section>
+<section class="detail-layout">
+  <div class="panel">
+    <h2>Source Context</h2>
+    <p id="paper-title"></p>
+    <p id="paper-doi"></p>
+    <p id="paper-url"></p>
+    <pre id="source-text" class="source-box">Source text unavailable in stored recipe.</pre>
+  </div>
+  <div class="panel">
+    <h2>Extracted Recipe</h2>
+    <h3>Entities</h3>
+    <table>
+      <thead><tr><th>Chemical</th><th>Formula</th><th>Role</th><th>Quantity</th><th>Moles</th></tr></thead>
+      <tbody id="entities-table"></tbody>
+    </table>
+    <h3>Conditions</h3>
+    <table><tbody id="conditions-table"></tbody></table>
+    <h3>Validation</h3>
+    <div id="validation-section"></div>
+    <h3>Observability</h3>
+    <div id="observability-section"></div>
+  </div>
+</section>
+<script src="/static/js/recipe_detail.js"></script>
+{% endblock %}

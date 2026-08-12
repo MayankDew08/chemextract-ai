@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Knowledge Graph{% endblock %}
+{% block head %}
+<script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+{% endblock %}
+{% block content %}
+<section class="graph-layout">
+  <aside class="graph-sidebar">
+    <h1>Knowledge Graph</h1>
+    <input id="graph-search" type="search" placeholder="Search chemical...">
+    <div class="legend">
+      <h2>Legend</h2>
+      <p><span class="dot reactant"></span> REACTANT</p>
+      <p><span class="dot solvent"></span> SOLVENT</p>
+      <p><span class="dot catalyst"></span> CATALYST</p>
+      <p><span class="dot product"></span> PRODUCT</p>
+      <p><span class="dot reaction"></span> REACTION</p>
+      <p><span class="dot paper"></span> PAPER</p>
+    </div>
+    <div id="graph-stats" class="stats-panel"></div>
+    <div id="node-info" class="info-panel">Click any node to see details.</div>
+  </aside>
+  <div class="graph-main">
+    <div id="graph-loading" class="loading">Loading knowledge graph...</div>
+    <div id="network"></div>
+  </div>
+</section>
+<script src="/static/js/graph.js"></script>
+{% endblock %}

@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ChemExtract AI — {% block title %}{% endblock %}</title>
+  <link rel="stylesheet" href="/static/css/main.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <nav class="top-nav">
+    <a class="brand" href="/dashboard">⚗️ ChemExtract AI</a>
+    <div class="nav-links">
+      <a href="/dashboard">Dashboard</a>
+      <a href="/recipes">Recipes</a>
+      <a href="/graph">Knowledge Graph</a>
+    </div>
+    <span id="backend-badge" class="backend-badge">backend</span>
+  </nav>
+  <main class="page-shell">{% block content %}{% endblock %}</main>
+  <script>
+    fetch('/api/graph/stats').then(r => r.json()).then(d => {
+      document.getElementById('backend-badge').textContent = d.backend;
+    }).catch(() => {});
+  </script>
+</body>
+</html>

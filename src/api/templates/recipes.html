@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Recipes{% endblock %}
+{% block content %}
+<section class="page-header">
+  <h1>Recipe Browser</h1>
+  <p>Browse validated synthesis recipes stored in the graph.</p>
+</section>
+<section class="recipes-layout">
+  <aside class="filter-panel">
+    <h2>Filters</h2>
+    <label>Status</label>
+    <select id="status-filter">
+      <option value="">All</option>
+      <option value="PASSED">PASSED</option>
+      <option value="CORRECTED">CORRECTED</option>
+      <option value="FAILED">FAILED</option>
+    </select>
+    <label>Sort by</label>
+    <select id="sort-by">
+      <option value="latest">Latest</option>
+      <option value="latency">Latency</option>
+      <option value="cost">Cost</option>
+      <option value="corrections">Corrections</option>
+    </select>
+    <label>Search</label>
+    <input id="recipe-search" type="search" placeholder="Search title...">
+  </aside>
+  <div id="recipe-grid" class="recipe-grid"></div>
+</section>
+<script src="/static/js/recipes.js"></script>
+{% endblock %}

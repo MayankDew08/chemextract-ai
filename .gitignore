@@ -1,0 +1,54 @@
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Python bytecode and package artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+build/
+dist/
+
+# Test, type-checker, and coverage artifacts
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Local ChemExtract runtime data
+data/cache/
+data/uploads/
+data/metrics.db
+data/metrics.db-*
+data/obsidian_vault/
+data/obsidian_vault_demo/
+
+# Local database sidecar files
+*.db-shm
+*.db-wal
+*.sqlite-shm
+*.sqlite-wal
+
+# Logs and temporary files
+*.log
+*.tmp
+*.swp
+*~
+
+# Notebook, IDE, and operating-system metadata
+.ipynb_checkpoints/
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+<section class="page-header">
+  <h1>Pipeline Dashboard</h1>
+  <p>Local extraction metrics, validation quality, and graph growth.</p>
+</section>
+<section class="panel">
+  <h2>Extract Recipes</h2>
+  <div class="input-tabs">
+    <button class="tab-btn active" type="button" data-tab="search">🔍 Search Papers</button>
+    <button class="tab-btn" type="button" data-tab="upload">📄 Upload PDF</button>
+    <button class="tab-btn" type="button" data-tab="url">🔗 Fetch URL</button>
+  </div>
+
+  <div id="tab-search" class="tab-content active">
+    <form id="extract-form" class="extract-form">
+      <input id="queryInput" type="text" placeholder="Enter compound query..." minlength="3" required>
+      <input id="maxPapers" type="number" min="1" max="25" value="10" aria-label="Maximum papers">
+      <button id="submitBtn" type="submit">Extract Recipes</button>
+    </form>
+    <div id="progressSection" class="progress-section" style="display:none">
+      <div class="progress-bar-container">
+        <div class="progress-bar" style="width:0%"></div>
+      </div>
+      <div class="progress-log"></div>
+    </div>
+  </div>
+
+  <div id="tab-upload" class="tab-content">
+    <div class="upload-area" id="dropZone">
+      <div class="upload-icon">📄</div>
+      <p>Drop PDF here or click to browse</p>
+      <p class="upload-hint">Supports: chemistry papers, patents, technical reports</p>
+      <input type="file" id="pdfFile" accept=".pdf" hidden>
+    </div>
+    <div id="uploadFileInfo" style="display:none">
+      <span class="filename"></span>
+      <span class="filesize"></span>
+    </div>
+    <input type="text" id="pdfTitle" placeholder="Paper title (optional)">
+    <button id="uploadBtn" type="button" onclick="uploadPDF()">Extract from PDF</button>
+    <div id="uploadProgress" class="progress-section" style="display:none">
+      <div class="progress-bar-container">
+        <div class="progress-bar" style="width:0%"></div>
+      </div>
+      <div class="progress-log"></div>
+    </div>
+  </div>
+
+  <div id="tab-url" class="tab-content">
+    <input type="url" id="paperUrl" placeholder="https://arxiv.org/abs/2301.12345">
+    <div class="url-hints">
+      <p>✅ Works with: ArXiv, PubMed Central, ChemRxiv, MDPI, PLoS, Frontiers</p>
+      <p>❌ Cannot access: ACS, Elsevier, Nature, Wiley. Use PDF upload instead.</p>
+    </div>
+    <input type="text" id="urlTitle" placeholder="Paper title (optional)">
+    <button id="fetchUrlBtn" type="button" onclick="fetchURL()">Fetch and Extract</button>
+    <div id="urlProgress" class="progress-section" style="display:none">
+      <div class="progress-bar-container">
+        <div class="progress-bar" style="width:0%"></div>
+      </div>
+      <div class="progress-log"></div>
+    </div>
+    <div id="paywallMessage" style="display:none" class="paywall-notice">
+      <h4>⚠️ This paper is behind a paywall</h4>
+      <p id="paywallDetails"></p>
+      <div id="alternatives"></div>
+      <div class="paywall-pdf-panel">
+        <p>Have the PDF? Upload it here and ChemExtract will run the PDF parser pipeline.</p>
+        <input type="file" id="paywallPdfFile" accept=".pdf">
+        <input type="text" id="paywallPdfTitle" placeholder="Paper title (optional)">
+        <button id="paywallPdfBtn" type="button" onclick="uploadPaywallPDF()">Extract from PDF</button>
+      </div>
+    </div>
+  </div>
+</section>
+<div class="settings-panel" id="settingsPanel">
+  <div class="settings-header" onclick="toggleSettings()">
+    <h3>⚙️ Pipeline Settings</h3><span id="settingsToggle">▼</span>
+  </div>
+  <div class="settings-body" id="settingsBody" style="display:none">
+    <div class="settings-section">
+      <h4>LLM Provider</h4>
+      <div class="provider-tabs">
+        <button class="provider-tab active" data-provider="ollama" onclick="selectProvider('ollama')">🖥️ Ollama (Local)</button>
+        <button class="provider-tab" data-provider="groq" onclick="selectProvider('groq')">⚡ Groq</button>
+        <button class="provider-tab" data-provider="gemini" onclick="selectProvider('gemini')">✨ Gemini</button>
+      </div>
+      <div id="ollama-settings" class="provider-settings">
+        <div class="form-row"><label>Model</label><select id="ollamaModel"><option value="qwen2.5:7b">qwen2.5:7b (recommended)</option></select><button type="button" onclick="refreshOllamaModels()">↻ Refresh</button></div>
+        <div class="form-row"><label>Server URL</label><input type="text" id="ollamaUrl" value="http://localhost:11434"></div>
+        <div id="ollamaStatus" class="status-indicator">Checking...</div>
+      </div>
+      <div id="groq-settings" class="provider-settings" style="display:none">
+        <div class="form-row"><label>API Key</label><input type="password" id="groqApiKey" placeholder="gsk_..."><button type="button" onclick="testGroq()">Test</button></div>
+        <div class="form-row"><label>Model</label><select id="groqModel"><option value="llama-3.1-8b-instant">llama-3.1-8b-instant (fastest)</option><option value="llama-3.1-70b-versatile">llama-3.1-70b-versatile (best quality)</option><option value="gemma2-9b-it">gemma2-9b-it</option></select></div>
+        <div id="groqStatus" class="status-indicator">Enter API key to test</div>
+      </div>
+      <div id="gemini-settings" class="provider-settings" style="display:none">
+        <div class="form-row"><label>API Key</label><input type="password" id="geminiApiKey" placeholder="AIza..."><button type="button" onclick="testGemini()">Test</button></div>
+        <div class="form-row"><label>Model</label><select id="geminiModel"><option value="gemini-1.5-flash">gemini-1.5-flash (free tier)</option><option value="gemini-1.5-pro">gemini-1.5-pro (better quality)</option></select></div>
+        <div id="geminiStatus" class="status-indicator">Enter API key to test</div>
+      </div>
+    </div>
+    <div class="settings-section">
+      <h4>Graph Storage Backend</h4>
+      <div class="backend-options">
+        <label class="backend-option"><input type="radio" name="graphBackend" value="networkx" checked><div class="backend-info"><strong>NetworkX</strong><span>In-memory. Fastest. No setup required.</span><span class="backend-note">Data lost on restart. Good for exploration.</span></div></label>
+        <label class="backend-option"><input type="radio" name="graphBackend" value="obsidian"><div class="backend-info"><strong>Obsidian Vault</strong><span>Markdown files. Free graph visualization.</span><input type="text" id="obsidianPath" value="./data/obsidian_vault" placeholder="Vault path" onclick="event.stopPropagation()"></div></label>
+        <label class="backend-option"><input type="radio" name="graphBackend" value="neo4j"><div class="backend-info"><strong>Neo4j</strong><span>Full graph database. Cypher queries.</span><span class="backend-note">Requires: docker compose up -d neo4j</span><div id="neo4jStatus" class="status-indicator">Checking...</div><div class="neo4j-fields"><input type="text" id="neo4jUri" value="bolt://localhost:7687" placeholder="Neo4j URI"><input type="password" id="neo4jPassword" placeholder="Password"></div></div></label>
+      </div>
+    </div>
+    <div class="settings-actions"><button class="btn-primary" type="button" onclick="saveSettings()">💾 Save Settings</button><button class="btn-secondary" type="button" onclick="testAllConnections()">🔌 Test All Connections</button><span id="settingsSaveStatus"></span></div>
+  </div>
+</div>
+<section class="dashboard-grid">
+  <div class="stat-grid"><div class="stat-card"><span>Total Recipes</span><strong id="total-recipes">0</strong></div><div class="stat-card"><span>Success Rate</span><strong id="success-rate">0%</strong></div><div class="stat-card"><span>Total Cost</span><strong id="total-cost">$0.00</strong></div><div class="stat-card"><span>Avg Latency</span><strong id="avg-latency">0s</strong></div><div class="stat-card"><span>Graph Nodes</span><strong id="graph-nodes">0</strong></div><div class="stat-card"><span>Total Tokens</span><strong id="total-tokens">0</strong></div></div>
+  <div class="chart-card"><canvas id="status-chart"></canvas></div><div class="chart-card"><canvas id="error-chart"></canvas></div>
+</section>
+<section class="panel"><h2>Agent Timing</h2><table><thead><tr><th>Agent</th><th>Avg Latency</th><th>Total Calls</th><th>Total Tokens</th></tr></thead><tbody id="node-timings"></tbody></table></section>
+<script src="/static/js/dashboard.js"></script>
+{% endblock %}
