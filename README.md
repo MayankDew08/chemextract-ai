@@ -42,11 +42,70 @@ The output: structured, validated synthesis recipes linked to their source paper
 
 ## 🎬 Demo
 
-> **[▶ Watch 2-minute demo](https://loom.com/your-link-here)**
+> **[▶ Watch 2-minute demo](https://drive.google.com/file/d/1QL7uRrQogZ7jBX0CVMofgyuCKiI6oAAM/view?usp=sharing)**
 >
 > Shows: searching ArXiv + PubMed for Fe₃O₄ synthesis →
 > multi-agent extraction → self-correction in action →
 > knowledge graph populating live → dashboard metrics
+
+### Product Walkthrough
+
+Configure the extraction input, switch between local and cloud LLMs, and select NetworkX, Obsidian, or Neo4j storage from one dashboard.
+
+<p align="center">
+  <img src="media/Screenshot%20from%202026-08-12%2017-41-47.png" alt="ChemExtract pipeline settings with input, LLM provider, and graph storage controls" width="100%">
+</p>
+
+Track validated recipes, success rate, cost, latency, graph size, tokens, correction types, and per-agent timing.
+
+<table>
+  <tr>
+    <td width="50%">
+      <img src="media/Screenshot%20from%202026-08-12%2017-41-56.png" alt="Pipeline dashboard summary metrics and validation status chart">
+    </td>
+    <td width="50%">
+      <img src="media/Screenshot%20from%202026-08-12%2017-42-00.png" alt="Validation error frequency and per-agent timing breakdown">
+    </td>
+  </tr>
+  <tr>
+    <td align="center"><strong>Pipeline metrics</strong></td>
+    <td align="center"><strong>Agent-level breakdown</strong></td>
+  </tr>
+</table>
+
+Browse every validated recipe, then inspect its source paper, entities, conditions, correction history, model usage, latency, tokens, and cost.
+
+<table>
+  <tr>
+    <td width="50%">
+      <img src="media/Screenshot%20from%202026-08-12%2017-42-47.png" alt="Recipe browser showing validated ZnO, Fe3O4, TiO2, and CuO synthesis recipes">
+    </td>
+    <td width="50%">
+      <img src="media/Screenshot%20from%202026-08-12%2017-43-01.png" alt="Recipe detail page with source context, extracted entities, conditions, validation, and observability">
+    </td>
+  </tr>
+  <tr>
+    <td align="center"><strong>Recipe browser</strong></td>
+    <td align="center"><strong>Evidence-linked recipe detail</strong></td>
+  </tr>
+</table>
+
+Explore the full knowledge graph, then click any chemical, reaction, product, solvent, or paper node to reveal its role and connected evidence.
+
+<table>
+  <tr>
+    <td width="50%">
+      <img src="media/Screenshot%20from%202026-08-12%2017-43-19.png" alt="Interactive chemistry knowledge graph with typed nodes and edges">
+    </td>
+    <td width="50%">
+      <img src="media/Screenshot%20from%202026-08-12%2017-43-34.png" alt="Selected zinc acetate dihydrate node with reaction count and chemical co-occurrences">
+    </td>
+  </tr>
+  <tr>
+    <td align="center"><strong>Knowledge graph</strong></td>
+    <td align="center"><strong>Interactive node evidence</strong></td>
+  </tr>
+</table>
 
 ```bash
 $ python demo.py --query "synthesis of Fe3O4 nanoparticles"
@@ -163,7 +222,7 @@ flowchart TD
 ```
 
 **Key design choice:** LLMs handle language understanding only. All physical reasoning is pure Python. A temperature of 5000°C is always rejected regardless of model confidence. This separation — the same pattern used in GoalPath AI's mathematical core — is what makes the system trustworthy enough to build a database from.
-
+http://novyte.in
 ## 🚀 Quick Start
 
 ### Prerequisites
@@ -372,6 +431,8 @@ chemextract-ai/
 ├── docs/
 │   ├── DEMO_SCRIPT.md    # 2-minute Loom recording script
 │   └── COLD_EMAIL.md     # Cold email templates
+│
+├── media/                # Dashboard, recipe explorer, and graph screenshots
 │
 ├── demo.py               # One-command demo: --demo / --query / --pdf / --url
 ├── docker-compose.yml    # Neo4j service (optional)

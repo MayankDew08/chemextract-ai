@@ -181,8 +181,23 @@ def test_is_chemistry_text_rejects_generic_prose() -> None:
         "Zinc acetate was dissolved in methanol solution, stirred, heated at 65°C, "
         "and filtered to synthesize ZnO nanoparticles after the reaction."
     )
+    generic_procedure = (
+        "The compound was prepared using standard laboratory methods. Some chemicals were "
+        "mixed and heated. The resulting material was isolated after routine processing."
+    )
+    chemistry_procedure_without_measurements = (
+        "The catalyst was prepared by refluxing the solution overnight, then filtered, "
+        "washed, and dried before the reaction mixture was collected for characterization."
+    )
+    interdisciplinary_prose = (
+        "The dataset and neural model were prepared using standard methods. The classifier "
+        "reaction to the benchmark mixture was collected and evaluated across all experiments."
+    )
     assert is_chemistry_text(chemistry_text)
     assert is_chemistry_text(chemistry_text.replace("ZnO", "TiO2"))
+    assert is_chemistry_text(chemistry_procedure_without_measurements)
+    assert not is_chemistry_text(generic_procedure)
+    assert not is_chemistry_text(interdisciplinary_prose)
     assert not is_chemistry_text("The results showed significant improvement.")
     assert not is_chemistry_text("")
 

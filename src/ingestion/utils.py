@@ -121,11 +121,20 @@ def is_chemistry_text(text: str, threshold: float = 0.3) -> bool:
     if len(words) < 20:
         return False
     word_set = set(re.findall(r"[a-zA-Zµ°%]+", text.lower()))
+    chemistry_word_hits = len(word_set & CHEMISTRY_WORDS)
     unit_hits = len(word_set & CHEMISTRY_UNITS) * 2
     verb_hits = len(word_set & CHEMISTRY_VERBS) * 2
     noun_hits = len(word_set & CHEMISTRY_NOUNS)
     formula_hits = len(FORMULA_RE.findall(text)) * 1.5
     non_chemistry_hits = len(word_set & NON_CHEMISTRY)
+    has_chemistry_anchor = (
+        chemistry_word_hits > 0
+        or unit_hits > 0
+        or formula_hits > 0
+        or (noun_hits >= 2 and non_chemistry_hits == 0)
+    )
+    if not has_chemistry_anchor:
+        return False
     score = (unit_hits + verb_hits + noun_hits + formula_hits) / len(words) * 100
     if non_chemistry_hits > 3 and score < 1.0:
         return False
