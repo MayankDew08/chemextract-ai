@@ -340,7 +340,8 @@ def test_neo4j_store_writes_audit_metadata_to_reaction_and_paper_nodes() -> None
     store = Neo4jStore()
     store._driver = RecordingDriver()
     store._nx_mirror.initialize()
-    store.write_recipe_full(recipe_with_audit_metadata())
+    recipe = recipe_with_audit_metadata()
+    store.write_recipe_full(recipe)
 
     reaction_query, reaction_params = next(item for item in calls if "MERGE (r:ChemExtract:" in item[0])
     paper_params = next(params for query, params in calls if "MERGE (p:ChemExtract:" in query)
@@ -352,6 +353,64 @@ def test_neo4j_store_writes_audit_metadata_to_reaction_and_paper_nodes() -> None
     assert reaction_params["source_text_completeness"] == "full_text"
     assert reaction_params["source_acquisition_method"] == "user_upload"
     assert '"condition_agent": "deterministic_fallback"' in reaction_params["node_extraction_methods"]
+    assert ChemicalRecipe.model_validate_json(reaction_params["recipe_json"]) == recipe
+
+
+def test_neo4j_store_rehydrates_persisted_recipes_on_initialize(monkeypatch) -> None:
+    """A fresh Neo4jStore process should expose recipes already persisted in Neo4j."""
+
+    persisted = recipe_with_audit_metadata("rxn_persisted")
+
+    class HydrationResult:
+        """Return persisted recipe payloads through the Neo4j result iterator."""
+
+        def __init__(self, session):
+            self._session = session
+
+        def __iter__(self):
+            if not self._session.active:
+                raise RuntimeError("Neo4j results must be consumed before the session closes")
+            return iter([{"recipe_json": persisted.model_dump_json()}])
+
+    class HydrationSession:
+        """Serve constraints and the startup hydration query."""
+
+        active = False
+
+        def __enter__(self):
+            self.active = True
+            return self
+
+        def __exit__(self, *_args):
+            self.active = False
+            return False
+
+        def run(self, query: str, parameters: dict | None = None):
+            if "RETURN r.recipe_json AS recipe_json" in query:
+                return HydrationResult(self)
+            return None
+
+    class HydrationDriver:
+        """Minimal Neo4j driver used at the public initialize seam."""
+
+        def verify_connectivity(self):
+            return None
+
+        def session(self):
+            return HydrationSession()
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr("neo4j.GraphDatabase.driver", lambda *_args, **_kwargs: HydrationDriver())
+    store = Neo4jStore()
+
+    store.initialize()
+
+    assert store.get_recipe(persisted.recipe_id) == persisted
+    assert store.get_all_recipes() == [persisted]
+    assert store.export_graph_json().metadata["recipe_count"] == 1
+    store.close()
 
 
 @pytest.mark.asyncio

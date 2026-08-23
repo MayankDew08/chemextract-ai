@@ -53,6 +53,7 @@ class Neo4jStore(BaseGraphStore):
         self._driver.verify_connectivity()
         self._nx_mirror.initialize()
         self._create_constraints()
+        self._hydrate_recipe_cache()
         logger.info("Neo4jStore connected to %s", self._uri)
 
     def _create_constraints(self) -> None:
@@ -66,6 +67,28 @@ class Neo4jStore(BaseGraphStore):
         with self._driver.session() as session:
             for constraint in constraints:
                 session.run(constraint)
+
+    def _hydrate_recipe_cache(self) -> None:
+        """Rebuild the query mirror from durable recipe payloads in Neo4j."""
+
+        with self._driver.session() as session:
+            records = list(
+                session.run(
+                    "MATCH (r:ChemExtractReaction {chemextract_managed: true}) "
+                    "WHERE r.recipe_json IS NOT NULL "
+                    "RETURN r.recipe_json AS recipe_json"
+                )
+            )
+        loaded: dict[str, ChemicalRecipe] = {}
+        for record in records:
+            try:
+                recipe = ChemicalRecipe.model_validate_json(record["recipe_json"])
+            except Exception as exc:
+                logger.warning("Skipping invalid persisted Neo4j recipe payload: %s", exc)
+                continue
+            self._nx_mirror.write_recipe_full(recipe)
+            loaded[recipe.recipe_id] = recipe
+        self._recipes_cache = loaded
 
     def write_recipe(self, recipe: ChemicalRecipe) -> str:
         """MERGE a reaction node and mirror it locally."""
@@ -88,6 +111,7 @@ class Neo4jStore(BaseGraphStore):
             r.source_text_completeness = $source_text_completeness,
             r.source_acquisition_method = $source_acquisition_method,
             r.node_extraction_methods = $node_extraction_methods,
+            r.recipe_json = $recipe_json,
             r.node_type = 'reaction'
         """
         with self._driver.session() as session:
@@ -107,10 +131,11 @@ class Neo4jStore(BaseGraphStore):
                     "source_text_completeness": recipe_payload.get("source_text_completeness"),
                     "source_acquisition_method": recipe_payload.get("source_acquisition_method"),
                     "node_extraction_methods": json.dumps(recipe_payload.get("node_extraction_methods", {})),
+                    "recipe_json": recipe.model_dump_json(),
                 },
             )
         self._nx_mirror.write_recipe(recipe)
-        self._recipes_cache[recipe.recipe_id] = recipe
+        self._recipes_cache = {**self._recipes_cache, recipe.recipe_id: recipe}
         return node_id
 
     def write_chemical(self, entity: ChemicalEntity, recipe_id: str) -> str:
