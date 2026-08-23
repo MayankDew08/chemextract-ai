@@ -8,6 +8,7 @@ are corrected or safely marked FAILED without crashing chunk processing.
 from __future__ import annotations
 
 import logging
+from typing import cast
 
 from langgraph.graph import END, START, StateGraph
 
@@ -64,12 +65,45 @@ class ExtractionPipeline:
             text_completeness=chunk.completeness,
             acquisition_method=chunk.acquisition_method,
         )
-        final_state = await self._graph.ainvoke(initial_state)
+        provider = getattr(self, "_provider", None)
+        if provider is not None and provider.provider_name == "offline":
+            final_state = await self._run_offline(initial_state)
+        else:
+            final_state = await self._graph.ainvoke(initial_state)
         recipe = final_state.get("recipe")
         if recipe is None:
             raise RuntimeError("Extraction graph completed without a recipe")
         self._persist_recipe(recipe)
         return recipe
+
+    async def _run_offline(self, initial_state: PipelineState) -> PipelineState:
+        """Execute the graph contract locally when network inference is disabled."""
+
+        state = initial_state
+        state = _updated_state(state, await self.entity_node(state))
+        state = _updated_state(state, await self.quantity_node(state))
+        state = _updated_state(state, await self.condition_node(state))
+
+        while True:
+            state = _updated_state(state, await self.validator_node(state))
+            if route_after_validation(state) == "assemble_recipe_node":
+                return _updated_state(state, await self.assemble_recipe_node(state))
+
+            state = _updated_state(state, await self.error_router_node(state))
+            route = route_after_error_router(state)
+            if route == "failure_sink_node":
+                return _updated_state(state, await self.failure_sink_node(state))
+            if route == ResponsibleAgent.ENTITY_AGENT.value:
+                state = _updated_state(state, await self.entity_node(state))
+                state = _updated_state(state, await self.quantity_node(state))
+                state = _updated_state(state, await self.condition_node(state))
+            elif route == ResponsibleAgent.QUANTITY_AGENT.value:
+                state = _updated_state(state, await self.quantity_node(state))
+                state = _updated_state(state, await self.condition_node(state))
+            elif route == ResponsibleAgent.CONDITION_AGENT.value:
+                state = _updated_state(state, await self.condition_node(state))
+            else:
+                raise RuntimeError(f"Unsupported offline correction route: {route}")
 
     def close(self) -> None:
         """Close owned graph storage so Obsidian/Neo4j resources flush cleanly."""
@@ -320,6 +354,12 @@ def _entity_list_from_state(state: PipelineState):
     from src.schemas.chemical import EntityList
 
     return EntityList(entities=state["quantified_entities"])
+
+
+def _updated_state(state: PipelineState, update: dict) -> PipelineState:
+    """Return a new pipeline state containing one node's partial update."""
+
+    return cast(PipelineState, {**state, **update})
 
 
 def _make_recipe_title(technique: str | None, entities: list) -> str | None:

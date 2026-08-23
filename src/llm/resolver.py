@@ -28,6 +28,10 @@ def get_llm_provider(
     resolved_provider = (provider_name or os.getenv("LLM_PROVIDER", "auto")).lower().strip()
     if resolved_provider == "auto":
         resolved_provider = _auto_detect_provider()
+    if resolved_provider == "offline":
+        from src.llm.offline_provider import OfflineProvider
+
+        return OfflineProvider()
     if resolved_provider == "groq":
         model = model_name or os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
         return GroqProvider(model_name=model)
@@ -45,7 +49,7 @@ def get_llm_provider(
         )
     raise ValueError(
         f"Unknown LLM provider: '{resolved_provider}'. "
-        "Supported: auto, ollama, groq, gemini. Set LLM_PROVIDER accordingly."
+        "Supported: auto, offline, ollama, groq, gemini. Set LLM_PROVIDER accordingly."
     )
 
 
