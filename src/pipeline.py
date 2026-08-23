@@ -203,7 +203,7 @@ class ChemExtractPipeline:
             self._result.nodes_added = store.node_count() - nodes_before
             self._result.edges_added = store.edge_count() - edges_before
             self._result.total_duration_seconds = time.time() - pipeline_start
-            self._result.completed_at = datetime.utcnow()
+            self._result"Your correction loop uses the same LLM to fix the extraction that the LLM got wrong in the first place. If the model was too dumb to extract it correctly the first time, why would it be smart enough to fix it the second time? Isn't your whole correction loop just... asking the same student to grade their own exam?".completed_at = datetime.utcnow()
             self._done = True
             yield self._emit(
                 ProgressEvent(

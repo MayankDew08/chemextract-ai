@@ -222,7 +222,7 @@ flowchart TD
 ```
 
 **Key design choice:** LLMs handle language understanding only. All physical reasoning is pure Python. A temperature of 5000°C is always rejected regardless of model confidence. This separation — the same pattern used in GoalPath AI's mathematical core — is what makes the system trustworthy enough to build a database from.
-http://novyte.in
+
 ## 🚀 Quick Start
 
 ### Prerequisites
@@ -237,7 +237,7 @@ http://novyte.in
 ### Install
 
 ```bash
-git clone https://github.com/MayankDewangan-dev/chemextract-ai
+git clone https://github.com/MayankDew08/chemextract-ai
 cd chemextract-ai
 
 # Using uv (recommended)
@@ -495,7 +495,7 @@ MIT License — see [LICENSE](LICENSE) for details.
 <div align="center">
 
 Built by
-<a href="https://github.com/MayankDewangan-dev">
+<a href="https://github.com/MayankDew08">
   <strong>Mayank Dewangan</strong>
 </a>
 <br>
