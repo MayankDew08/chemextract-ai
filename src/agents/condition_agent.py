@@ -37,6 +37,7 @@ class ConditionExtractionAgent:
 
         started = time.perf_counter()
         provider_used = self._provider
+        extraction_method = "primary_llm"
         try:
             result = await self._invoke_provider(provider_used, text, entities)
         except Exception as exc:
@@ -46,17 +47,21 @@ class ConditionExtractionAgent:
                 try:
                     provider_used = fallback
                     result = await self._invoke_provider(provider_used, text, entities)
+                    extraction_method = "fallback_llm"
                 except Exception as fallback_exc:
                     logger.warning("Condition agent fallback provider failed: %s", fallback_exc)
                     result = self._deterministic_extract(text)
+                    extraction_method = "deterministic_fallback"
             else:
                 result = self._deterministic_extract(text)
+                extraction_method = "deterministic_fallback"
         tokens = _estimate_tokens(text, result.model_dump_json())
         return result, {
             "latency": time.perf_counter() - started,
             "tokens": tokens,
             "provider": provider_used.provider_name,
             "model": provider_used.model_name,
+            "extraction_method": extraction_method,
         }
 
     async def _invoke_provider(
@@ -74,7 +79,9 @@ class ConditionExtractionAgent:
         response = await llm.ainvoke(messages)
         response_text = response.content if isinstance(response.content, str) else str(response.content)
         result = parse_to_pydantic(response_text, ReactionConditions, label="condition_agent", coerce_numbers=True)
-        return result if isinstance(result, ReactionConditions) else self._deterministic_extract(text)
+        if not isinstance(result, ReactionConditions):
+            raise ValueError("Condition agent returned no schema-compatible result")
+        return result
 
     def _deterministic_extract(self, text: str) -> ReactionConditions:
         """Extract common condition patterns for offline and provider-failure paths."""
@@ -100,14 +107,30 @@ class ConditionExtractionAgent:
             if candidate in lowered or f"{candidate}ed" in lowered:
                 technique = candidate
                 break
-        atmosphere = "air"
+        atmosphere = None
         for candidate in ["nitrogen", "argon", "vacuum"]:
             if candidate in lowered:
                 atmosphere = candidate
                 break
+        if atmosphere is None and re.search(r"\b(?:under|in)\s+air\b|\bair\s+atmosphere\b", lowered):
+            atmosphere = "air"
+        pressure = None
+        pressure_match = re.search(r"(\d+(?:\.\d+)?)\s*(atm|bar|kpa|mpa)\b", lowered)
+        if pressure_match:
+            pressure_value = float(pressure_match.group(1))
+            pressure_unit = pressure_match.group(2)
+            pressure = {
+                "atm": pressure_value,
+                "bar": pressure_value * 0.986923,
+                "kpa": pressure_value / 101.325,
+                "mpa": pressure_value * 9.86923,
+            }[pressure_unit]
+        elif "ambient pressure" in lowered:
+            pressure = 1.0
         return ReactionConditions(
             temperature_celsius=temperature,
             duration_hours=duration,
+            pressure_atm=pressure,
             atmosphere=atmosphere,
             technique=technique,
         )

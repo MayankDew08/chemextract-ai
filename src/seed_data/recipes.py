@@ -40,7 +40,7 @@ def _recipe(
     temperature: float,
     duration: float,
     technique: str,
-    atmosphere: str = "air",
+    atmosphere: str | None = None,
     additional: dict[str, str] | None = None,
     corrected: tuple[str, str, str] | None = None,
     tokens: tuple[int, int, int],
@@ -60,7 +60,7 @@ def _recipe(
                 error_type=error_type,
                 error_field=error_field,
                 error_message=message,
-                agent_that_fixed="seed_correction_agent",
+                agent_routed_to="seed_correction_agent",
                 corrected_at=_EXTRACTED_AT + timedelta(hours=offset_hours, minutes=1),
             )
         ]

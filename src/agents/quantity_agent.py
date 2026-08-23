@@ -37,6 +37,7 @@ class QuantityAlignmentAgent:
 
         started = time.perf_counter()
         provider_used = self._provider
+        extraction_method = "primary_llm"
         input_list = EntityList(entities=entities)
         try:
             result = await self._invoke_provider(provider_used, text, input_list)
@@ -47,17 +48,21 @@ class QuantityAlignmentAgent:
                 try:
                     provider_used = fallback
                     result = await self._invoke_provider(provider_used, text, input_list)
+                    extraction_method = "fallback_llm"
                 except Exception as fallback_exc:
                     logger.warning("Quantity agent fallback provider failed: %s", fallback_exc)
                     result = self._deterministic_align(text, entities)
+                    extraction_method = "deterministic_fallback"
             else:
                 result = self._deterministic_align(text, entities)
+                extraction_method = "deterministic_fallback"
         tokens = _estimate_tokens(text, result.model_dump_json())
         return result, {
             "latency": time.perf_counter() - started,
             "tokens": tokens,
             "provider": provider_used.provider_name,
             "model": provider_used.model_name,
+            "extraction_method": extraction_method,
         }
 
     async def _invoke_provider(self, provider: BaseLLMProvider, text: str, entities: EntityList) -> EntityList:
@@ -70,7 +75,9 @@ class QuantityAlignmentAgent:
         response = await llm.ainvoke(messages)
         response_text = response.content if isinstance(response.content, str) else str(response.content)
         result = parse_to_pydantic(response_text, EntityList, label="quantity_agent", coerce_numbers=True)
-        return result if isinstance(result, EntityList) else self._deterministic_align(text, entities.entities)
+        if not isinstance(result, EntityList):
+            raise ValueError("Quantity agent returned no schema-compatible result")
+        return result
 
     def _deterministic_align(self, text: str, entities: list[ChemicalEntity]) -> EntityList:
         """Align nearby parenthesized quantities for the common demo synthesis style."""

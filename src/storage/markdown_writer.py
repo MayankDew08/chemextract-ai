@@ -45,7 +45,8 @@ def generate_recipe_markdown(recipe: ChemicalRecipe) -> str:
     conditions = recipe.conditions
     correction_history = (
         "\n".join(
-            f"- Attempt {record.attempt_number}: {record.agent_that_fixed} fixed {record.error_type} — {record.error_message}"
+            f"- Attempt {record.attempt_number}: routed to {record.agent_routed_to} for "
+            f"{record.error_type} — {record.error_message}"
             for record in recipe.correction_history
         )
         if recipe.correction_history
@@ -54,15 +55,31 @@ def generate_recipe_markdown(recipe: ChemicalRecipe) -> str:
     title = recipe.title or f"Reaction {recipe.recipe_id}"
     paper_title = recipe.source_paper_title or "Unknown source"
     technique_tag = (conditions.technique if conditions and conditions.technique else "unknown").replace(" ", "_")
-    atmosphere_tag = (conditions.atmosphere if conditions else "air").replace(" ", "_")
+    atmosphere_tag = (conditions.atmosphere if conditions and conditions.atmosphere else "unknown").replace(" ", "_")
+    warning_history = (
+        "\n".join(_warning_text(warning) for warning in recipe.validation_warnings)
+        if recipe.validation_warnings
+        else "No validation warnings."
+    )
+    extraction_methods = (
+        "\n".join(
+            f"- {node_name}: {_enum_value(method)}"
+            for node_name, method in sorted(recipe.node_extraction_methods.items())
+        )
+        if recipe.node_extraction_methods
+        else "No extraction method metadata."
+    )
     recipe_payload = recipe.model_dump_json()
     return f"""---
 recipe_id: {recipe.recipe_id}
 validation_status: {recipe.validation_status.value}
 corrections: {recipe.correction_count()}
+warning_count: {len(recipe.validation_warnings)}
 extracted_at: {recipe.extracted_at.isoformat()}
 llm_model: {recipe.llm_model}
 source_url: {recipe.source_paper_url or ""}
+source_text_completeness: {_enum_value(recipe.source_text_completeness) or ""}
+source_acquisition_method: {_enum_value(recipe.source_acquisition_method) or ""}
 ---
 
 # {title}
@@ -82,7 +99,7 @@ source_url: {recipe.source_paper_url or ""}
 | Temperature | {_condition_value(conditions.temperature_celsius if conditions else None, "°C")} |
 | Duration | {_condition_value(conditions.duration_hours if conditions else None, " hours")} |
 | Technique | {conditions.technique if conditions and conditions.technique else "unknown"} |
-| Atmosphere | {conditions.atmosphere if conditions else "unknown"} |
+| Atmosphere | {conditions.atmosphere if conditions and conditions.atmosphere else "unknown"} |
 | Pressure | {_condition_value(conditions.pressure_atm if conditions else None, " atm")} |
 
 ## Source Text
@@ -92,6 +109,16 @@ URL: {_paper_url_link(recipe.source_paper_url)}
 
 ## Correction History
 {correction_history}
+
+## Validation Warnings
+{warning_history}
+
+## Extraction Provenance
+**Source text completeness:** {_enum_value(recipe.source_text_completeness) or "unknown"}
+**Source acquisition method:** {_enum_value(recipe.source_acquisition_method) or "unknown"}
+
+### Node Extraction Methods
+{extraction_methods}
 
 ```chemextract-recipe-json
 {recipe_payload}
@@ -196,6 +223,8 @@ def parse_recipe_from_markdown(md_path: Path) -> Optional[ChemicalRecipe]:
             validation_status=status,
             llm_model=frontmatter.get("llm_model", "unknown"),
             source_paper_url=frontmatter.get("source_url") or None,
+            source_text_completeness=frontmatter.get("source_text_completeness") or None,
+            source_acquisition_method=frontmatter.get("source_acquisition_method") or None,
         )
     except Exception as exc:
         logger.warning("Failed to parse recipe markdown %s: %s", md_path, exc)
@@ -269,11 +298,11 @@ def _parse_conditions_table(content: str) -> Optional[ReactionConditions]:
         elif line.startswith("| Duration |"):
             values["duration_hours"] = _parse_float(line)
         elif line.startswith("| Technique |"):
-            values["technique"] = line.strip("|").split("|")[1].strip()
+            values["technique"] = _optional_table_text(line)
         elif line.startswith("| Atmosphere |"):
-            values["atmosphere"] = line.strip("|").split("|")[1].strip()
+            values["atmosphere"] = _optional_table_text(line)
         elif line.startswith("| Pressure |"):
-            values["pressure_atm"] = _parse_float(line) or 1.0
+            values["pressure_atm"] = _parse_float(line)
     if not values:
         return None
     return ReactionConditions(**values)
@@ -295,3 +324,27 @@ def _parse_float(line: str) -> Optional[float]:
 
     match = re.search(r"-?\d+(?:\.\d+)?", line)
     return float(match.group(0)) if match else None
+
+
+def _optional_table_text(line: str) -> Optional[str]:
+    """Return a table value while keeping presentation placeholders out of data."""
+
+    value = line.strip("|").split("|")[1].strip()
+    return None if value.lower() in {"", "unknown", "-"} else value
+
+
+def _enum_value(value: object) -> Optional[str]:
+    """Return the JSON value of an optional string enum."""
+
+    if value is None:
+        return None
+    return str(getattr(value, "value", value))
+
+
+def _warning_text(warning: object) -> str:
+    """Render one structured validation warning for a human-readable audit trail."""
+
+    error_type = _enum_value(getattr(warning, "error_type", None)) or "WARNING"
+    field_path = getattr(warning, "field_path", "unknown field")
+    message = " ".join(str(getattr(warning, "message", "")).split())
+    return f"- **{error_type}** (`{field_path}`): {message}"

@@ -48,20 +48,40 @@ class MetricsStore:
                 latency_seconds   REAL DEFAULT 0.0,
                 llm_model         TEXT DEFAULT '',
                 error_types       TEXT DEFAULT '[]',
+                warning_types     TEXT DEFAULT '[]',
                 node_latencies    TEXT DEFAULT '{}',
                 node_tokens       TEXT DEFAULT '{}',
                 extracted_at      TEXT
             )
             """
         )
+        columns = {row[1] for row in self._conn.execute("PRAGMA table_info(recipe_runs)")}
+        if "warning_types" not in columns:
+            self._conn.execute("ALTER TABLE recipe_runs ADD COLUMN warning_types TEXT DEFAULT '[]'")
         self._conn.commit()
 
     async def record_recipe(self, recipe: ChemicalRecipe) -> None:
         """Record one completed recipe run with idempotent upsert semantics."""
 
         error_types = json.dumps([record.error_type for record in recipe.correction_history])
+        warning_types = json.dumps([warning.error_type.value for warning in recipe.validation_warnings])
         self._conn.execute(
-            "INSERT OR REPLACE INTO recipe_runs VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            """
+            INSERT OR REPLACE INTO recipe_runs (
+                recipe_id,
+                validation_status,
+                correction_count,
+                total_tokens,
+                cost_usd,
+                latency_seconds,
+                llm_model,
+                error_types,
+                warning_types,
+                node_latencies,
+                node_tokens,
+                extracted_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
             (
                 recipe.recipe_id,
                 recipe.validation_status.value,
@@ -71,6 +91,7 @@ class MetricsStore:
                 recipe.total_latency_seconds,
                 recipe.llm_model,
                 error_types,
+                warning_types,
                 json.dumps(recipe.node_latencies),
                 json.dumps(recipe.node_tokens),
                 recipe.extracted_at.isoformat(),
@@ -89,7 +110,23 @@ class MetricsStore:
     async def compute_metrics(self, graph_store: BaseGraphStore) -> PipelineMetrics:
         """Compute the full dashboard snapshot from stored recipe runs."""
 
-        cursor = self._conn.execute("SELECT * FROM recipe_runs")
+        cursor = self._conn.execute(
+            """
+            SELECT
+                recipe_id,
+                validation_status,
+                correction_count,
+                total_tokens,
+                cost_usd,
+                latency_seconds,
+                llm_model,
+                error_types,
+                node_latencies,
+                node_tokens,
+                extracted_at
+            FROM recipe_runs
+            """
+        )
         try:
             rows = cursor.fetchall()
         finally:

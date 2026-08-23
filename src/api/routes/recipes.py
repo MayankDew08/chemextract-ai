@@ -25,6 +25,7 @@ class RecipeSummary(BaseModel):
     validation_status: str
     entity_count: int
     correction_count: int
+    warning_count: int
     temperature_celsius: Optional[float]
     duration_hours: Optional[float]
     product_names: list[str]
@@ -67,6 +68,7 @@ def _summarize(recipe) -> RecipeSummary:
         validation_status=recipe.validation_status.value,
         entity_count=len(recipe.entities),
         correction_count=recipe.correction_count(),
+        warning_count=len(recipe.validation_warnings),
         temperature_celsius=conditions.temperature_celsius if conditions else None,
         duration_hours=conditions.duration_hours if conditions else None,
         product_names=[entity.name for entity in recipe.entities if entity.role == ChemicalRole.PRODUCT],

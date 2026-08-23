@@ -13,9 +13,11 @@ from datetime import UTC, datetime
 from enum import Enum
 from typing import Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import AliasChoices, BaseModel, Field, field_validator
 
 from src.schemas.chemical import ChemicalEntity, ChemicalRole
+from src.schemas.paper import AcquisitionMethod, TextCompleteness
+from src.schemas.validation import ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -29,22 +31,32 @@ class ValidationStatus(str, Enum):
     CORRECTED = "CORRECTED"
 
 
+class ExtractionMethod(str, Enum):
+    """Identify how an extraction node obtained its accepted output."""
+
+    PRIMARY_LLM = "primary_llm"
+    FALLBACK_LLM = "fallback_llm"
+    DETERMINISTIC_FALLBACK = "deterministic_fallback"
+
+
 class ReactionConditions(BaseModel):
     """Physical reaction conditions normalized to Celsius, hours, and atm."""
 
-    temperature_celsius: Optional[float] = Field(None, ge=-200.0, le=3500.0)
-    duration_hours: Optional[float] = Field(None, ge=0.0, le=8760.0)
-    pressure_atm: float = Field(default=1.0, ge=0.0, le=2000.0)
-    atmosphere: str = Field(default="air")
+    temperature_celsius: Optional[float] = Field(default=None, allow_inf_nan=False)
+    duration_hours: Optional[float] = Field(default=None, allow_inf_nan=False)
+    pressure_atm: Optional[float] = Field(default=None, allow_inf_nan=False)
+    atmosphere: Optional[str] = None
     technique: Optional[str] = None
-    yield_percent: Optional[float] = Field(None, ge=0.0, le=100.0)
+    yield_percent: Optional[float] = Field(default=None, allow_inf_nan=False)
     additional_conditions: Optional[dict[str, str]] = Field(default_factory=dict)
 
     @field_validator("atmosphere")
     @classmethod
-    def normalize_atmosphere(cls, v: str) -> str:
+    def normalize_atmosphere(cls, v: Optional[str]) -> Optional[str]:
         """Normalize shorthand gas labels so recipes are queryable."""
 
+        if v is None:
+            return None
         value = v.lower().strip()
         mapping = {
             "n2": "nitrogen",
@@ -74,8 +86,17 @@ class CorrectionRecord(BaseModel):
     error_type: str
     error_field: str
     error_message: str
-    agent_that_fixed: str
+    agent_routed_to: str = Field(
+        validation_alias=AliasChoices("agent_routed_to", "agent_that_fixed"),
+        description="Extraction agent selected to address the reported validation error",
+    )
     corrected_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+    @property
+    def agent_that_fixed(self) -> str:
+        """Return the legacy audit name for callers during the transition window."""
+
+        return self.agent_routed_to
 
 
 class ChemicalRecipe(BaseModel):
@@ -86,17 +107,21 @@ class ChemicalRecipe(BaseModel):
     source_paper_title: Optional[str] = None
     source_paper_doi: Optional[str] = None
     source_paper_url: Optional[str] = None
+    source_text_completeness: Optional[TextCompleteness] = None
+    source_acquisition_method: Optional[AcquisitionMethod] = None
     title: Optional[str] = None
     entities: list[ChemicalEntity] = Field(default_factory=list)
     conditions: Optional[ReactionConditions] = None
     validation_status: ValidationStatus = ValidationStatus.PENDING
     validation_errors: list[str] = Field(default_factory=list)
+    validation_warnings: list[ValidationError] = Field(default_factory=list)
     correction_history: list[CorrectionRecord] = Field(default_factory=list)
     total_tokens_used: int = Field(default=0)
     estimated_cost_usd: float = Field(default=0.0)
     total_latency_seconds: float = Field(default=0.0)
     node_latencies: dict[str, float] = Field(default_factory=dict)
     node_tokens: dict[str, int] = Field(default_factory=dict)
+    node_extraction_methods: dict[str, ExtractionMethod] = Field(default_factory=dict)
     extracted_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     llm_provider: str = Field(default="unknown")
     llm_model: str = Field(default="unknown")

@@ -61,6 +61,8 @@ class ExtractionPipeline:
             paper_title=chunk.paper_metadata.title,
             paper_doi=chunk.paper_metadata.doi,
             paper_url=chunk.paper_metadata.open_access_url,
+            text_completeness=chunk.completeness,
+            acquisition_method=chunk.acquisition_method,
         )
         final_state = await self._graph.ainvoke(initial_state)
         recipe = final_state.get("recipe")
@@ -86,7 +88,7 @@ class ExtractionPipeline:
                 build_entity_correction_prompt(
                     source_text,
                     state["identified_entities"],
-                    [],
+                    _correction_errors_for(state, ResponsibleAgent.ENTITY_AGENT),
                     state["retry_count"],
                     state["max_retries"],
                 ),
@@ -98,6 +100,10 @@ class ExtractionPipeline:
             "total_latency": state["total_latency"] + float(meta["latency"]),
             "node_latencies": {**state["node_latencies"], "entity_node": float(meta["latency"])},
             "node_tokens": {**state["node_tokens"], "entity_node": int(meta["tokens"])},
+            "node_extraction_methods": {
+                **state["node_extraction_methods"],
+                "entity_node": str(meta["extraction_method"]),
+            },
             "llm_provider": str(meta["provider"]),
             "llm_model": str(meta["model"]),
         }
@@ -112,7 +118,7 @@ class ExtractionPipeline:
                 build_quantity_correction_prompt(
                     source_text,
                     state["identified_entities"],
-                    [],
+                    _correction_errors_for(state, ResponsibleAgent.QUANTITY_AGENT),
                     state["retry_count"],
                     state["max_retries"],
                 ),
@@ -124,6 +130,10 @@ class ExtractionPipeline:
             "total_latency": state["total_latency"] + float(meta["latency"]),
             "node_latencies": {**state["node_latencies"], "quantity_node": float(meta["latency"])},
             "node_tokens": {**state["node_tokens"], "quantity_node": int(meta["tokens"])},
+            "node_extraction_methods": {
+                **state["node_extraction_methods"],
+                "quantity_node": str(meta["extraction_method"]),
+            },
             "llm_provider": str(meta["provider"]),
             "llm_model": str(meta["model"]),
         }
@@ -138,7 +148,7 @@ class ExtractionPipeline:
                 build_condition_correction_prompt(
                     source_text,
                     state["conditions"],
-                    [],
+                    _correction_errors_for(state, ResponsibleAgent.CONDITION_AGENT),
                     state["retry_count"],
                     state["max_retries"],
                 ),
@@ -151,13 +161,22 @@ class ExtractionPipeline:
         total_latency = state["total_latency"] + float(meta["latency"])
         node_latencies = {**state["node_latencies"], "condition_node": float(meta["latency"])}
         node_tokens = {**state["node_tokens"], "condition_node": int(meta["tokens"])}
-        cost_provider = get_llm_provider(str(meta["provider"]), str(meta["model"]))
-        estimated_cost = cost_provider.estimate_cost(total_tokens // 2, total_tokens // 2)
+        node_extraction_methods = {
+            **state["node_extraction_methods"],
+            "condition_node": str(meta["extraction_method"]),
+        }
+        try:
+            cost_provider = get_llm_provider(str(meta["provider"]), str(meta["model"]))
+            estimated_cost = cost_provider.estimate_cost(total_tokens // 2, total_tokens // 2)
+        except ValueError:
+            estimated_cost = 0.0
         recipe = ChemicalRecipe(
             source_chunk_id=state["source_chunk_id"],
             source_paper_title=state["source_paper_title"],
             source_paper_doi=state["source_paper_doi"],
             source_paper_url=state["source_paper_url"],
+            source_text_completeness=state["source_text_completeness"],
+            source_acquisition_method=state["source_acquisition_method"],
             title=_make_recipe_title(result.technique, state["quantified_entities"]),
             entities=state["quantified_entities"],
             conditions=result,
@@ -167,6 +186,7 @@ class ExtractionPipeline:
             total_latency_seconds=total_latency,
             node_latencies=node_latencies,
             node_tokens=node_tokens,
+            node_extraction_methods=node_extraction_methods,
             llm_provider=str(meta["provider"]),
             llm_model=str(meta["model"]),
         )
@@ -177,6 +197,7 @@ class ExtractionPipeline:
             "total_latency": total_latency,
             "node_latencies": node_latencies,
             "node_tokens": node_tokens,
+            "node_extraction_methods": node_extraction_methods,
             "llm_provider": str(meta["provider"]),
             "llm_model": str(meta["model"]),
         }
@@ -187,12 +208,17 @@ class ExtractionPipeline:
         temp_recipe = _build_recipe_from_state(state, ValidationStatus.PENDING)
         result = ValidationEngine().validate(temp_recipe)
         if result.passed:
-            return {"route_to": "assemble", "last_validation_errors": []}
+            return {
+                "route_to": "assemble",
+                "last_validation_errors": [],
+                "validation_warnings": result.warnings,
+            }
         responsible = result.primary_responsible_agent()
         return {
             "route_to": responsible.value if responsible else "exhausted",
             "retry_count": state["retry_count"] + 1,
-            "last_validation_errors": [error.message for error in result.blocking_errors],
+            "last_validation_errors": result.blocking_errors,
+            "validation_warnings": result.warnings,
         }
 
     async def error_router_node(self, state: PipelineState) -> dict:
@@ -200,12 +226,13 @@ class ExtractionPipeline:
 
         if state["retry_count"] >= state["max_retries"]:
             return {"route_to": "exhausted"}
+        errors = _correction_errors_for_route(state)
         record = CorrectionRecord(
             attempt_number=state["retry_count"],
-            error_type=state["last_validation_errors"][0] if state["last_validation_errors"] else "UNKNOWN",
-            error_field="see errors",
-            error_message="; ".join(state["last_validation_errors"]),
-            agent_that_fixed=state["route_to"] or "unknown",
+            error_type=errors[0].error_type.value if errors else "UNKNOWN",
+            error_field="; ".join(error.field_path for error in errors) or "unknown",
+            error_message="; ".join(error.message for error in errors) or "Unknown validation failure",
+            agent_routed_to=state["route_to"] or "unknown",
         )
         return {"correction_history": state["correction_history"] + [record]}
 
@@ -219,12 +246,14 @@ class ExtractionPipeline:
         """Return a FAILED recipe after retries are exhausted without raising."""
 
         recipe = _build_recipe_from_state(state, ValidationStatus.FAILED)
-        recipe = recipe.model_copy(update={"validation_errors": state["last_validation_errors"]})
+        recipe = recipe.model_copy(
+            update={"validation_errors": [error.message for error in state["last_validation_errors"]]},
+        )
         logger.warning(
             "Recipe %s failed after %s retries. Errors: %s",
             recipe.recipe_id,
             state["retry_count"],
-            state["last_validation_errors"],
+            [error.message for error in state["last_validation_errors"]],
         )
         return {"recipe": recipe}
 
@@ -333,6 +362,8 @@ def _build_recipe_from_state(state: PipelineState, status: ValidationStatus) -> 
         source_paper_title=state["source_paper_title"],
         source_paper_doi=state["source_paper_doi"],
         source_paper_url=state["source_paper_url"],
+        source_text_completeness=state["source_text_completeness"],
+        source_acquisition_method=state["source_acquisition_method"],
         title=_make_recipe_title(state["conditions"].technique if state["conditions"] else None, state["quantified_entities"]),
         entities=state["quantified_entities"],
         conditions=state["conditions"],
@@ -343,6 +374,8 @@ def _build_recipe_from_state(state: PipelineState, status: ValidationStatus) -> 
         total_latency_seconds=state["total_latency"],
         node_latencies=state["node_latencies"],
         node_tokens=state["node_tokens"],
+        node_extraction_methods=state["node_extraction_methods"],
+        validation_warnings=state["validation_warnings"],
         llm_provider=state["llm_provider"] or "unknown",
         llm_model=state["llm_model"] or "unknown",
     )
@@ -352,6 +385,26 @@ def _is_retry_for(state: PipelineState, agent: ResponsibleAgent) -> bool:
     """Return whether a node is being revisited for a correction attempt."""
 
     return state["retry_count"] > 0 and bool(state["last_validation_errors"]) and state["route_to"] == agent.value
+
+
+def _correction_errors_for(state: PipelineState, agent: ResponsibleAgent):
+    """Return all current errors of the first routed type for one agent."""
+
+    agent_errors = [error for error in state["last_validation_errors"] if error.responsible_agent == agent]
+    if not agent_errors:
+        return []
+    error_type = agent_errors[0].error_type
+    return [error for error in agent_errors if error.error_type == error_type]
+
+
+def _correction_errors_for_route(state: PipelineState):
+    """Resolve the typed error group represented by the current graph route."""
+
+    try:
+        agent = ResponsibleAgent(state["route_to"])
+    except (TypeError, ValueError):
+        return []
+    return _correction_errors_for(state, agent)
 
 
 def _with_correction_context(source_text: str, correction_prompt: str) -> str:

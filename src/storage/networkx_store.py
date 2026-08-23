@@ -92,6 +92,8 @@ class NetworkXStore(BaseGraphStore):
 
         graph = self._require_graph()
         node_id = self._recipe_id_to_node_id(recipe.recipe_id)
+        recipe_payload = recipe.model_dump(mode="json")
+        validation_warnings = recipe_payload.get("validation_warnings", [])
         graph.add_node(
             node_id,
             node_type=NodeType.REACTION.value,
@@ -105,6 +107,11 @@ class NetworkXStore(BaseGraphStore):
             llm_model=recipe.llm_model,
             extracted_at=recipe.extracted_at.isoformat(),
             source_url=recipe.source_paper_url or "",
+            warning_count=len(validation_warnings),
+            validation_warnings=validation_warnings,
+            source_text_completeness=recipe_payload.get("source_text_completeness"),
+            source_acquisition_method=recipe_payload.get("source_acquisition_method"),
+            node_extraction_methods=recipe_payload.get("node_extraction_methods", {}),
         )
         self._recipes[recipe.recipe_id] = recipe
         return node_id

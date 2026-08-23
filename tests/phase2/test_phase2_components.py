@@ -21,7 +21,13 @@ from src.llm.resolver import get_llm_provider
 from src.schemas.chemical import ChemicalRole, Quantity
 from src.schemas.pipeline import make_initial_state
 from src.schemas.paper import AcquisitionMethod, PaperMetadata, TextChunk, TextCompleteness
-from src.schemas.recipe import ChemicalRecipe, ReactionConditions
+from src.schemas.recipe import ChemicalRecipe, CorrectionRecord, ExtractionMethod, ReactionConditions
+from src.schemas.validation import (
+    ErrorSeverity,
+    ErrorType,
+    ResponsibleAgent,
+    ValidationError,
+)
 
 
 class BrokenProvider(BaseLLMProvider):
@@ -59,12 +65,76 @@ class SchemaRejectedProvider(BrokenProvider):
         raise ValueError("tool call validation failed: /entities minimum 1 items")
 
 
-def test_quantity_requires_known_unit() -> None:
-    """Quantity should reject unitless or invented measurements."""
+def test_quantity_schema_owns_shape_but_not_chemistry_semantics() -> None:
+    """Quantity parsing should leave unit vocabulary and positivity to validation."""
 
     assert str(Quantity(value=2.195, unit="g")) == "2.195 g"
+    assert Quantity(value=-1.0, unit="bananas").model_dump() == {"value": -1.0, "unit": "bananas"}
     with pytest.raises(ValueError):
-        Quantity(value=1.0, unit="bananas")
+        Quantity(value=1.0, unit=" ")
+    with pytest.raises(ValueError):
+        Quantity(value=float("nan"), unit="g")
+
+
+def test_reaction_conditions_preserve_absent_values_and_defer_ranges() -> None:
+    """Missing conditions stay absent and outliers remain available to the validator."""
+
+    conditions = ReactionConditions(
+        temperature_celsius=4000.0,
+        duration_hours=-1.0,
+        pressure_atm=0.0,
+        atmosphere=None,
+        yield_percent=101.0,
+    )
+
+    assert conditions.pressure_atm == 0.0
+    assert conditions.atmosphere is None
+    assert ReactionConditions().pressure_atm is None
+    assert ReactionConditions().atmosphere is None
+    with pytest.raises(ValueError):
+        ReactionConditions(temperature_celsius=float("inf"))
+
+
+def test_recipe_carries_typed_warnings_and_extraction_provenance() -> None:
+    """The durable recipe should expose warnings and provenance without invented defaults."""
+
+    warning = ValidationError(
+        error_type=ErrorType.NO_CONDITIONS,
+        severity=ErrorSeverity.WARNING,
+        responsible_agent=ResponsibleAgent.CONDITION_AGENT,
+        field_path="conditions",
+        message="No conditions found.",
+        suggested_fix="Inspect the source.",
+    )
+    recipe = ChemicalRecipe(
+        source_chunk_id="chunk",
+        source_text_completeness=TextCompleteness.FULL_TEXT,
+        source_acquisition_method=AcquisitionMethod.USER_UPLOAD,
+        node_extraction_methods={"entity_agent": ExtractionMethod.DETERMINISTIC_FALLBACK},
+        validation_warnings=[warning],
+    )
+
+    assert recipe.validation_warnings == [warning]
+    assert recipe.source_text_completeness == TextCompleteness.FULL_TEXT
+    assert recipe.source_acquisition_method == AcquisitionMethod.USER_UPLOAD
+    assert recipe.node_extraction_methods == {"entity_agent": ExtractionMethod.DETERMINISTIC_FALLBACK}
+
+
+def test_correction_record_uses_truthful_name_and_accepts_legacy_payloads() -> None:
+    """Audit records should say who was routed to while still loading old data."""
+
+    legacy = CorrectionRecord(
+        attempt_number=1,
+        error_type="UNIT_MISSING",
+        error_field="entities[0].quantity",
+        error_message="Missing quantity",
+        agent_that_fixed="quantity_agent",
+    )
+
+    assert legacy.agent_routed_to == "quantity_agent"
+    assert legacy.agent_that_fixed == "quantity_agent"
+    assert "agent_routed_to" in legacy.model_dump()
+    assert "agent_that_fixed" not in legacy.model_dump()
 
 
 def test_entity_list_accepts_empty_provider_response() -> None:

@@ -148,7 +148,7 @@ def run_case(name: str, description: str, recipe: ChemicalRecipe) -> tuple[Chemi
     print(f"Final status: {final.validation_status.value}")
     print("Correction history:")
     for record in final.correction_history:
-        print(f"  - attempt {record.attempt_number}: {record.agent_that_fixed} -> {record.error_message}")
+        print(f"  - attempt {record.attempt_number}: {record.agent_routed_to} -> {record.error_message}")
     print(f"Time taken: {time.perf_counter() - started:.4f}s")
     return final, error_history, time.perf_counter() - started
 
@@ -182,7 +182,7 @@ def _record(attempt: int, errors: list, route: ResponsibleAgent | None) -> Corre
         error_type=errors[0].error_type.value if errors else "UNKNOWN",
         error_field=errors[0].field_path if errors else "unknown",
         error_message="; ".join(error.message for error in errors) if errors else "unknown",
-        agent_that_fixed=route.value if route else "failure_sink",
+        agent_routed_to=route.value if route else "failure_sink",
     )
 
 

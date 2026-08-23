@@ -1,8 +1,8 @@
 """Chemical participant schemas for Phase 2 extraction.
 
 This file contains ChemicalRole, Quantity, ChemicalEntity, and EntityList. The
-schemas force every extracted measurement to carry a known unit so downstream
-validation can distinguish missing information from invented chemistry.
+schemas preserve parseable measurements so deterministic validation can report
+unsupported or implausible chemistry without discarding the extraction output.
 """
 
 from __future__ import annotations
@@ -29,55 +29,19 @@ class ChemicalRole(str, Enum):
 
 
 class Quantity(BaseModel):
-    """A positive physical quantity where unitless numbers are rejected."""
+    """A parseable physical quantity whose chemistry semantics are validated later."""
 
-    value: float = Field(..., gt=0, description="Must be positive")
+    value: float = Field(..., allow_inf_nan=False, description="Numeric value as extracted from the source")
     unit: str = Field(..., min_length=1, description="Physical unit e.g. g, mg, mL, mmol, M, wt%, vol%")
 
     @field_validator("unit")
     @classmethod
-    def unit_must_be_known(cls, v: str) -> str:
-        """Reject invented units because extraction must preserve source evidence."""
+    def unit_must_be_present(cls, v: str) -> str:
+        """Normalize surrounding whitespace while retaining unknown units for validation."""
 
         unit = v.strip()
-        allowed_units = {
-            "g",
-            "mg",
-            "kg",
-            "ug",
-            "µg",
-            "mL",
-            "L",
-            "uL",
-            "µL",
-            "ml",
-            "l",
-            "mol",
-            "mmol",
-            "umol",
-            "µmol",
-            "nmol",
-            "M",
-            "mM",
-            "uM",
-            "µM",
-            "N",
-            "wt%",
-            "vol%",
-            "%",
-            "mol%",
-            "eq",
-            "equiv",
-            "v/v",
-            "w/w",
-            "w/v",
-        }
-        if unit not in allowed_units:
-            raise ValueError(
-                f"Unit '{unit}' is not in the allowed unit set. "
-                "If this is a valid chemistry unit, add it to ALLOWED_UNITS. "
-                "Do not invent units."
-            )
+        if not unit:
+            raise ValueError("Quantity unit cannot be blank")
         return unit
 
     def __str__(self) -> str:

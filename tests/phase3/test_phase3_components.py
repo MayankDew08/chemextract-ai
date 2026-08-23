@@ -14,7 +14,7 @@ from src.schemas.chemical import ChemicalEntity, ChemicalRole, Quantity
 from src.schemas.pipeline import make_initial_state
 from src.schemas.recipe import ChemicalRecipe, ReactionConditions, ValidationStatus
 from src.validator.engine import ValidationEngine
-from src.validator.error_types import ErrorType, ResponsibleAgent
+from src.validator.error_types import ErrorSeverity, ErrorType, ResponsibleAgent, ValidationError
 
 
 def valid_recipe() -> ChemicalRecipe:
@@ -81,6 +81,68 @@ def test_warnings_do_not_fail_recipe() -> None:
     assert result.warnings[0].error_type == ErrorType.PRODUCT_QUANTITY_AS_INPUT
 
 
+def test_validation_reports_every_error_of_the_same_type_in_entity_order() -> None:
+    """A correction attempt should receive every missing quantity, not only the first."""
+
+    recipe = valid_recipe().model_copy(
+        update={
+            "entities": [
+                ChemicalEntity(name="First reactant", role=ChemicalRole.REACTANT),
+                ChemicalEntity(name="Second catalyst", role=ChemicalRole.CATALYST),
+                ChemicalEntity(name="Third reactant", role=ChemicalRole.REACTANT),
+            ]
+        }
+    )
+
+    result = ValidationEngine().validate(recipe)
+    missing = [error for error in result.blocking_errors if error.error_type == ErrorType.UNIT_MISSING]
+
+    assert [error.entity_name for error in missing] == ["First reactant", "Second catalyst", "Third reactant"]
+    assert [error.field_path for error in missing] == [
+        "entities[0].quantity",
+        "entities[1].quantity",
+        "entities[2].quantity",
+    ]
+
+
+def test_validator_owns_units_quantities_and_condition_ranges() -> None:
+    """Parseable domain errors should survive Pydantic and be reported together."""
+
+    recipe = ChemicalRecipe(
+        source_chunk_id="invalid-domain-values",
+        entities=[
+            ChemicalEntity(
+                name="Reactant A",
+                role=ChemicalRole.REACTANT,
+                quantity=Quantity(value=-2.0, unit="bananas"),
+            ),
+            ChemicalEntity(
+                name="Reactant B",
+                role=ChemicalRole.REACTANT,
+                quantity=Quantity(value=0.0, unit="g"),
+            ),
+        ],
+        conditions=ReactionConditions(
+            temperature_celsius=4000.0,
+            duration_hours=-1.0,
+            pressure_atm=0.0,
+            yield_percent=101.0,
+        ),
+    )
+
+    result = ValidationEngine().validate(recipe)
+
+    assert [error.error_type for error in result.blocking_errors] == [
+        ErrorType.UNIT_INVALID,
+        ErrorType.QUANTITY_NEGATIVE,
+        ErrorType.QUANTITY_NEGATIVE,
+        ErrorType.TEMPERATURE_OUT_OF_RANGE,
+        ErrorType.DURATION_OUT_OF_RANGE,
+        ErrorType.PRESSURE_OUT_OF_RANGE,
+        ErrorType.YIELD_OUT_OF_RANGE,
+    ]
+
+
 def test_route_helpers_send_pass_fail_and_exhausted_states_correctly() -> None:
     """LangGraph route helpers should keep conditional edges deterministic."""
 
@@ -104,7 +166,26 @@ async def test_failure_sink_returns_failed_recipe_without_raising() -> None:
 
     state = make_initial_state("text", "chunk")
     state["retry_count"] = 3
-    state["last_validation_errors"] = ["No entities"]
+    state["last_validation_errors"] = [
+        ValidationError(
+            error_type=ErrorType.NO_ENTITIES,
+            severity=ErrorSeverity.BLOCKING,
+            responsible_agent=ResponsibleAgent.ENTITY_AGENT,
+            field_path="entities",
+            message="No entities",
+            suggested_fix="Extract named chemicals from the source.",
+        )
+    ]
+    state["validation_warnings"] = [
+        ValidationError(
+            error_type=ErrorType.NO_CONDITIONS,
+            severity=ErrorSeverity.WARNING,
+            responsible_agent=ResponsibleAgent.CONDITION_AGENT,
+            field_path="conditions",
+            message="No conditions",
+            suggested_fix="Inspect the source for reaction conditions.",
+        )
+    ]
     pipeline = ExtractionPipeline.__new__(ExtractionPipeline)
 
     result = await ExtractionPipeline.failure_sink_node(pipeline, state)
@@ -112,3 +193,4 @@ async def test_failure_sink_returns_failed_recipe_without_raising() -> None:
     recipe = result["recipe"]
     assert recipe.validation_status == ValidationStatus.FAILED
     assert recipe.validation_errors == ["No entities"]
+    assert [warning.message for warning in recipe.validation_warnings] == ["No conditions"]

@@ -6,6 +6,7 @@ persistence and maintains a NetworkX mirror for local query/export parity.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from typing import Optional
@@ -70,6 +71,8 @@ class Neo4jStore(BaseGraphStore):
         """MERGE a reaction node and mirror it locally."""
 
         node_id = f"rxn::{recipe.recipe_id}"
+        recipe_payload = recipe.model_dump(mode="json")
+        validation_warnings = recipe_payload.get("validation_warnings", [])
         cypher = """
         MERGE (r:ChemExtract:ChemExtractReaction {recipe_id: $recipe_id})
         SET r.node_id = $node_id,
@@ -80,6 +83,11 @@ class Neo4jStore(BaseGraphStore):
             r.llm_model = $model,
             r.extracted_at = $extracted_at,
             r.source_url = $source_url,
+            r.warning_count = $warning_count,
+            r.validation_warnings = $validation_warnings,
+            r.source_text_completeness = $source_text_completeness,
+            r.source_acquisition_method = $source_acquisition_method,
+            r.node_extraction_methods = $node_extraction_methods,
             r.node_type = 'reaction'
         """
         with self._driver.session() as session:
@@ -94,6 +102,11 @@ class Neo4jStore(BaseGraphStore):
                     "model": recipe.llm_model,
                     "extracted_at": recipe.extracted_at.isoformat(),
                     "source_url": recipe.source_paper_url or "",
+                    "warning_count": len(validation_warnings),
+                    "validation_warnings": json.dumps(validation_warnings),
+                    "source_text_completeness": recipe_payload.get("source_text_completeness"),
+                    "source_acquisition_method": recipe_payload.get("source_acquisition_method"),
+                    "node_extraction_methods": json.dumps(recipe_payload.get("node_extraction_methods", {})),
                 },
             )
         self._nx_mirror.write_recipe(recipe)

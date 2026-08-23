@@ -106,8 +106,8 @@ Your ONLY job: extract physical reaction conditions from synthesis text.
 STRICT RULES:
 1. Convert all temperatures to Celsius
 2. Convert all durations to hours
-3. Use pressure_atm=1.0 when pressure is not mentioned
-4. Use atmosphere=air unless nitrogen, argon, vacuum, inert gas, or another atmosphere is mentioned
+3. Set pressure_atm to null when pressure is not explicitly mentioned
+4. Set atmosphere to null unless air, nitrogen, argon, vacuum, inert gas, or another atmosphere is explicitly mentioned
 5. Extract the synthesis technique if stated or clearly indicated by verbs like refluxed, stirred, sonicated, hydrothermal
 6. Extract yield_percent only when a percent yield is explicitly reported
 7. Never invent missing temperature, duration, or yield

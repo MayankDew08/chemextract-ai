@@ -33,32 +33,39 @@ class EntityIdentificationAgent:
 
         started = time.perf_counter()
         provider_used = self._provider
+        extraction_method = "primary_llm"
         try:
             result = await self._invoke_provider(provider_used, text)
             if not result.entities:
                 logger.warning("Entity agent returned no entities; using deterministic extraction")
                 result = self._deterministic_extract(text)
+                extraction_method = "deterministic_fallback"
         except Exception as exc:
             logger.warning("Entity agent primary provider failed: %s", exc)
             if _is_empty_entity_schema_error(exc):
                 result = self._deterministic_extract(text)
+                extraction_method = "deterministic_fallback"
             else:
                 fallback = get_fallback_provider(provider_used)
                 if fallback is not None:
                     try:
                         provider_used = fallback
                         result = await self._invoke_provider(provider_used, text)
+                        extraction_method = "fallback_llm"
                     except Exception as fallback_exc:
                         logger.warning("Entity agent fallback provider failed: %s", fallback_exc)
                         result = self._deterministic_extract(text)
+                        extraction_method = "deterministic_fallback"
                 else:
                     result = self._deterministic_extract(text)
+                    extraction_method = "deterministic_fallback"
         tokens = _estimate_tokens(text, result.model_dump_json())
         return result, {
             "latency": time.perf_counter() - started,
             "tokens": tokens,
             "provider": provider_used.provider_name,
             "model": provider_used.model_name,
+            "extraction_method": extraction_method,
         }
 
     async def _invoke_provider(self, provider: BaseLLMProvider, text: str) -> EntityList:
@@ -93,8 +100,6 @@ class EntityIdentificationAgent:
             if match and match.group(0).lower() not in seen:
                 candidates.append(ChemicalEntity(name=match.group(0), role=role))
                 seen.add(match.group(0).lower())
-        if not candidates:
-            candidates.append(ChemicalEntity(name="chemical substance", role=ChemicalRole.UNKNOWN))
         return EntityList(entities=candidates, extraction_notes="Deterministic fallback extraction used.")
 
 

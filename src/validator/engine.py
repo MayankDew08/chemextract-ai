@@ -39,7 +39,7 @@ class ValidationEngine:
     def __init__(self) -> None:
         """Register rules in dependency-aware order so routing is stable."""
 
-        self._rules: list[Callable[[ChemicalRecipe], ValidationError | None]] = [
+        self._rules: list[Callable[[ChemicalRecipe], list[ValidationError]]] = [
             check_no_entities,
             check_no_primary_reactant,
             check_duplicate_entity_names,
@@ -71,14 +71,19 @@ class ValidationEngine:
         rules_passed = 0
         for rule_fn in self._rules:
             try:
-                error = rule_fn(recipe)
-                if error is None:
+                findings = rule_fn(recipe)
+                if not findings:
                     rules_passed += 1
-                elif error.severity == ErrorSeverity.BLOCKING:
-                    blocking_errors.append(error)
                 else:
-                    warnings.append(error)
-                    rules_passed += 1
+                    rule_has_blocking_error = False
+                    for finding in findings:
+                        if finding.severity == ErrorSeverity.BLOCKING:
+                            blocking_errors.append(finding)
+                            rule_has_blocking_error = True
+                        else:
+                            warnings.append(finding)
+                    if not rule_has_blocking_error:
+                        rules_passed += 1
             except Exception as exc:
                 logger.error("Rule %s raised exception: %s", rule_fn.__name__, exc)
                 warnings.append(
