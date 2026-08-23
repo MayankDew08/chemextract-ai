@@ -22,11 +22,13 @@ async def main() -> None:
     # depends on external provider latency or credentials.
     os.environ.pop("GROQ_API_KEY", None)
     os.environ.pop("GEMINI_API_KEY", None)
+    os.environ["OLLAMA_BASE_URL"] = "http://127.0.0.1:1"
 
     config = PipelineConfig(
         query="test synthesis",
         preloaded_chunks=SAMPLE_CHUNKS,
         graph_backend="networkx",
+        llm_provider="offline",
         max_retries=1,
         verbose=False,
     )

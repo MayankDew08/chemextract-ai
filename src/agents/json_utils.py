@@ -9,6 +9,8 @@ from typing import Any, Optional, TypeVar
 
 from pydantic import BaseModel
 
+from src.observability.audit_log import log_parse_failure
+
 logger = logging.getLogger(__name__)
 T = TypeVar("T", bound=BaseModel)
 
@@ -194,6 +196,7 @@ def parse_to_pydantic(
         except Exception:
             continue
     logger.warning("Could not parse local model JSON%s", f" ({label})" if label else "")
+    log_parse_failure(agent=label or model_class.__name__, raw_output=text, detail="all parse attempts failed")
     return None
 
 
@@ -233,4 +236,5 @@ def parse_entity_list_resilient(text: str, label: str = "") -> Optional[Any]:
         return EntityList(entities=entities) if entities else None
     except Exception as exc:
         logger.debug("[%s] resilient entity parsing failed: %s", label, exc)
+        log_parse_failure(agent=label or "entity_resilient", raw_output=text, detail=f"resilient parse failed: {exc}")
         return None

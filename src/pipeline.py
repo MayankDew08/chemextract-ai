@@ -18,6 +18,7 @@ from typing import Optional
 from pydantic import BaseModel, Field
 
 from src.ingestion.utils import classify_chunk_domain, is_chemistry_text
+from src.observability.audit_log import log_event, log_recipe_result
 from src.schemas.paper import TextChunk
 from src.schemas.recipe import ChemicalRecipe
 
@@ -155,6 +156,15 @@ class ChemExtractPipeline:
 
         pipeline_start = time.time()
         self._result.started_at = datetime.utcnow()
+        log_event(
+            "run_started",
+            query=self.config.query,
+            max_papers=self.config.max_papers,
+            max_chunks_per_paper=self.config.max_chunks_per_paper,
+            max_retries=self.config.max_retries,
+            llm_provider=self.config.llm_provider or os.getenv("LLM_PROVIDER", "auto"),
+            preloaded_chunks=self.config.preloaded_chunks is not None,
+        )
         try:
             yield self._emit(
                 ProgressEvent(stage="starting", message=f"ChemExtract AI — Query: '{self.config.query}'"),
@@ -182,6 +192,7 @@ class ChemExtractPipeline:
 
             if not chunks:
                 self._result.completed_at = datetime.utcnow()
+                log_event("run_completed", query=self.config.query, chunks=0, note="phase1_returned_no_chunks")
                 yield self._emit(
                     ProgressEvent(stage="error", message="Phase 1 returned no chunks. Check API connectivity."),
                 )
@@ -203,8 +214,20 @@ class ChemExtractPipeline:
             self._result.nodes_added = store.node_count() - nodes_before
             self._result.edges_added = store.edge_count() - edges_before
             self._result.total_duration_seconds = time.time() - pipeline_start
-            self._result"Your correction loop uses the same LLM to fix the extraction that the LLM got wrong in the first place. If the model was too dumb to extract it correctly the first time, why would it be smart enough to fix it the second time? Isn't your whole correction loop just... asking the same student to grade their own exam?".completed_at = datetime.utcnow()
+            self._result.completed_at = datetime.utcnow()
             self._done = True
+            log_event(
+                "run_completed",
+                query=self.config.query,
+                chunks=len(chunks),
+                recipes_extracted=self._result.recipes_extracted,
+                passed_first_try=self._result.passed_first_try,
+                self_corrected=self._result.self_corrected,
+                failed=self._result.failed,
+                total_tokens_used=self._result.total_tokens_used,
+                total_cost_usd=self._result.total_cost_usd,
+                duration_seconds=self._result.total_duration_seconds,
+            )
             yield self._emit(
                 ProgressEvent(
                     stage="complete",
@@ -221,6 +244,7 @@ class ChemExtractPipeline:
             logger.error("Pipeline failed: %s", exc, exc_info=True)
             self._result.completed_at = datetime.utcnow()
             self._done = True
+            log_event("run_error", query=self.config.query, error=str(exc))
             yield self._emit(ProgressEvent(stage="error", message=str(exc)))
 
     async def _run_phase1(self) -> list[TextChunk]:
@@ -264,6 +288,7 @@ class ChemExtractPipeline:
             domain = classify_chunk_domain(chunk.text)
             logger.info("Chunk %s skipped: domain=%s", index, domain)
             self._result.skipped_non_chemistry += 1
+            log_event("chunk_skipped", chunk_index=index, chunks_total=total, paper=paper_title, domain=domain)
             yield self._emit(
                 ProgressEvent(
                     stage="skipped",
@@ -294,6 +319,7 @@ class ChemExtractPipeline:
             metrics_store = self._get_metrics_store()
             if metrics_store is not None:
                 await metrics_store.record_recipe(recipe)
+            log_recipe_result(recipe)
             self._result.recipes.append(recipe)
             yield self._emit(
                 ProgressEvent(
@@ -310,10 +336,18 @@ class ChemExtractPipeline:
             message = f"Chunk {index} timed out after {self._chunk_timeout_seconds():.0f}s"
             logger.warning(message)
             self._result.failed += 1
+            log_event(
+                "chunk_timeout",
+                chunk_index=index,
+                chunks_total=total,
+                paper=paper_title,
+                timeout_seconds=self._chunk_timeout_seconds(),
+            )
             yield self._emit(ProgressEvent(stage="error", message=message))
         except Exception as exc:
             logger.error("Chunk %s processing failed: %s", index, exc, exc_info=True)
             self._result.failed += 1
+            log_event("chunk_error", chunk_index=index, chunks_total=total, paper=paper_title, error=str(exc)[:500])
             yield self._emit(ProgressEvent(stage="error", message=f"Chunk {index} failed: {str(exc)[:80]}"))
 
     def _record_phase1_stats(self, chunks: list[TextChunk]) -> None:
